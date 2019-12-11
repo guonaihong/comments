@@ -7,9 +7,16 @@ import (
 	"github.com/guonaihong/gout"
 	"os"
 	"regexp"
+	"strings"
 )
 
-//http://fanyi.youdao.com/translate?&doctype=json&type=AUTO&i=计算
+type comments struct {
+	In        string
+	Out       string
+	OverWrite bool
+}
+
+// http://fanyi.youdao.com/translate?&doctype=json&type=AUTO&i=计算
 // {"type":"ZH_CN2EN","errorCode":0,"elapsedTime":0,"translateResult":[[{"src":"计算","tgt":"To calculate"}]]}
 type youdao struct {
 	Doctype string `query:"doctype"`
@@ -66,10 +73,11 @@ func getEnglish(s string) string {
 		return s
 	}
 
-	return rv
+	return " " + rv + " "
 }
 
-func translate(inFile, outFile string, debug bool) {
+func (c *comments) translate() {
+	inFile, outFile := c.In, c.Out
 	inFd, err := os.Open(inFile)
 	if err != nil {
 		fmt.Printf("%s\n", err)
@@ -77,7 +85,12 @@ func translate(inFile, outFile string, debug bool) {
 	}
 	defer inFd.Close()
 
-	outFd, err := os.OpenFile(outFile, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0644)
+	oflag := os.O_EXCL
+	if c.OverWrite {
+		oflag = 0
+	}
+
+	outFd, err := os.OpenFile(outFile, os.O_CREATE|os.O_RDWR|oflag, 0644)
 	if err != nil {
 		fmt.Printf("%s\n", err)
 		return
@@ -86,8 +99,9 @@ func translate(inFile, outFile string, debug bool) {
 
 	br := bufio.NewReader(inFd)
 
-	re := regexp.MustCompile("[\u4e00-\u9fa5]*")
+	chinese := regexp.MustCompile("[\u4e00-\u9fa5]*")
 
+	replace := strings.NewReplacer("，", ",", "。", ".")
 	for {
 
 		l, e := br.ReadBytes('\n')
@@ -95,23 +109,26 @@ func translate(inFile, outFile string, debug bool) {
 			break
 		}
 
-		rv := re.ReplaceAllStringFunc(string(l), getEnglish)
+		rv := string(l)
+		rv = replace.Replace(rv)
+		rv = chinese.ReplaceAllStringFunc(string(l), getEnglish)
 
 		outFd.WriteString(rv)
 	}
 }
 
 func main() {
-	in := flag.String("in", "", "(must)input file")
-	out := flag.String("out", "", "(must)output file")
-	debug := flag.Bool("debug", false, "debug mode")
+	c := &comments{}
+	flag.StringVar(&c.In, "in", "", "(must)input file")
+	flag.StringVar(&c.Out, "out", "", "(must)output file")
+	flag.BoolVar(&c.OverWrite, "overwrite", false, "(must)Can overwrite files")
 
 	flag.Parse()
 
-	if len(*in) == 0 || len(*out) == 0 {
+	if len(c.In) == 0 || len(c.Out) == 0 {
 		flag.Usage()
 		return
 	}
 
-	translate(*in, *out, *debug)
+	c.translate()
 }
